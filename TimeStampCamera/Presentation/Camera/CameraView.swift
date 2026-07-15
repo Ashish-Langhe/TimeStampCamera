@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 
@@ -84,11 +85,11 @@ struct CameraView: View {
         }
         .sheet(isPresented: $isSecretSettingsPresented) {
             SecretTimestampSettingsView(
-                onUseOnce: { selectedDate in
-                    viewModel.setOneShotTimestampOverride(selectedDate)
+                onUseOnce: { selectedDate, selectedLocation in
+                    viewModel.setOneShotOverrides(timestamp: selectedDate, location: selectedLocation)
                 },
-                onStampExistingPhoto: { selectedDate in
-                    viewModel.setOneShotTimestampOverride(selectedDate)
+                onStampExistingPhoto: { selectedDate, selectedLocation in
+                    viewModel.setOneShotOverrides(timestamp: selectedDate, location: selectedLocation)
                     shouldOpenPhotoLibraryAfterSecretDismiss = true
                 }
             )
@@ -158,6 +159,11 @@ struct CameraView: View {
 
     private var idleStatusMessage: String {
         if let pendingTimestampOverride = viewModel.pendingTimestampOverride {
+            if let pendingLocationOverride = viewModel.pendingLocationOverride {
+                let locationName = pendingLocationOverride.locality ?? "custom location"
+                return "One custom timestamp is ready: \(pendingTimestampOverride.formatted(date: .abbreviated, time: .shortened)) with \(locationName)."
+            }
+
             return "One custom timestamp is ready: \(pendingTimestampOverride.formatted(date: .abbreviated, time: .shortened)). Location will still be current."
         }
 
@@ -265,8 +271,14 @@ private struct CameraIconButtonStyle: ButtonStyle {
 private struct SecretTimestampSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedDate = Date()
-    let onUseOnce: (Date) -> Void
-    let onStampExistingPhoto: (Date) -> Void
+    @State private var selectedSecond = Calendar.current.component(.second, from: Date())
+    @State private var useCustomLocation = false
+    @State private var latitudeText = ""
+    @State private var longitudeText = ""
+    @State private var localityText = ""
+    @State private var addressText = ""
+    let onUseOnce: (Date, CapturedLocation?) -> Void
+    let onStampExistingPhoto: (Date, CapturedLocation?) -> Void
 
     var body: some View {
         NavigationStack {
@@ -283,12 +295,56 @@ private struct SecretTimestampSettingsView: View {
                 }
 
                 Section {
+                    Stepper(value: $selectedSecond, in: 0...59) {
+                        HStack {
+                            Text("Second")
+                            Spacer()
+                            Text("\(selectedSecond)")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Precision")
+                } footer: {
+                    Text("Seconds are included in the custom timestamp.")
+                }
+
+                Section {
+                    Toggle("Use custom location", isOn: $useCustomLocation)
+
+                    if useCustomLocation {
+                        TextField("Latitude", text: $latitudeText)
+                            .keyboardType(.decimalPad)
+                            .textInputAutocapitalization(.never)
+                        TextField("Longitude", text: $longitudeText)
+                            .keyboardType(.decimalPad)
+                            .textInputAutocapitalization(.never)
+                        TextField("Location name", text: $localityText)
+                            .textInputAutocapitalization(.words)
+                        TextField("Address on stamp", text: $addressText, axis: .vertical)
+                            .lineLimit(2...3)
+
+                        if customLocation == nil {
+                            Text("Enter a valid latitude from -90 to 90 and longitude from -180 to 180.")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                } header: {
+                    Text("Location")
+                } footer: {
+                    Text("When enabled, the selected coordinate is used for the stamp text and the map pin.")
+                }
+
+                Section {
                     Button {
-                        onStampExistingPhoto(selectedDate)
+                        onStampExistingPhoto(customTimestamp, customLocation)
                         dismiss()
                     } label: {
                         Label("Stamp Existing Photo", systemImage: "photo.on.rectangle")
                     }
+                    .disabled(useCustomLocation && customLocation == nil)
                 } footer: {
                     Text("Choose a photo from your library, stamp it, and save the stamped copy back to Photos.")
                 }
@@ -303,12 +359,44 @@ private struct SecretTimestampSettingsView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Use Once") {
-                        onUseOnce(selectedDate)
+                        onUseOnce(customTimestamp, customLocation)
                         dismiss()
                     }
                     .fontWeight(.semibold)
+                    .disabled(useCustomLocation && customLocation == nil)
                 }
             }
         }
+    }
+
+    private var customTimestamp: Date {
+        var components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: selectedDate)
+        components.second = selectedSecond
+        components.nanosecond = 0
+        return Calendar.current.date(from: components) ?? selectedDate
+    }
+
+    private var customLocation: CapturedLocation? {
+        guard useCustomLocation,
+              let latitude = Double(latitudeText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let longitude = Double(longitudeText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else {
+            return nil
+        }
+
+        let locality = trimmed(localityText)
+        let address = trimmed(addressText)
+        return CapturedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            horizontalAccuracy: 0,
+            locality: locality,
+            formattedAddress: address ?? locality
+        )
+    }
+
+    private func trimmed(_ value: String) -> String? {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 }
