@@ -185,7 +185,7 @@ private struct CameraHeaderView: View {
             .shadow(color: CameraPalette.teal.opacity(0.20), radius: 12, x: 0, y: 8)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("TimeStamp Camera")
+                Text("Timestamp Camera")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(CameraPalette.ink)
                     .lineLimit(1)
