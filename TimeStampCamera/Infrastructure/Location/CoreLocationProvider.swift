@@ -7,6 +7,8 @@ final class CoreLocationProvider: NSObject, LocationProviding {
     private let geocoder: CLGeocoder
     private var locationContinuation: CheckedContinuation<CLLocation, Error>?
     private var authorizationContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
+    private var cachedLocation: CapturedLocation?
+    private var cachedLocationDate: Date?
 
     init(
         locationManager: CLLocationManager = CLLocationManager(),
@@ -16,7 +18,7 @@ final class CoreLocationProvider: NSObject, LocationProviding {
         self.geocoder = geocoder
         super.init()
         self.locationManager.delegate = self
-        self.locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        self.locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
     }
 
     func currentLocation() async throws -> CapturedLocation {
@@ -26,18 +28,25 @@ final class CoreLocationProvider: NSObject, LocationProviding {
             throw LocationProviderError.permissionDenied
         }
 
+        if let cachedLocation, let cachedLocationDate, Date().timeIntervalSince(cachedLocationDate) < 90 {
+            return cachedLocation
+        }
+
         let location = try await requestOneShotLocation()
         let placemark = try? await geocoder.reverseGeocodeLocation(location).first
         let address = [placemark?.name, placemark?.locality, placemark?.administrativeArea, placemark?.country]
             .compactMap { $0 }
             .joined(separator: ", ")
 
-        return CapturedLocation(
+        let capturedLocation = CapturedLocation(
             coordinate: location.coordinate,
             horizontalAccuracy: location.horizontalAccuracy,
             locality: placemark?.locality,
             formattedAddress: address.isEmpty ? nil : address
         )
+        cachedLocation = capturedLocation
+        cachedLocationDate = Date()
+        return capturedLocation
     }
 
     private func resolvedAuthorizationStatus() async -> CLAuthorizationStatus {

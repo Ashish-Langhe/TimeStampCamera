@@ -11,7 +11,7 @@ struct MapKitSnapshotRenderer: MapSnapshotRendering {
             longitudinalMeters: 700
         )
         options.size = size
-        options.scale = UIScreen.main.scale
+        options.scale = 1
         options.mapType = .standard
 
         let snapshot = try await MKMapSnapshotter(options: options).start()

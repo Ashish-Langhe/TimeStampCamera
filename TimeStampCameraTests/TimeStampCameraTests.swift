@@ -48,10 +48,11 @@ struct TimeStampCameraTests {
             timeZone: TimeZone(secondsFromGMT: 0)!,
             locale: Locale(identifier: "en_US_POSIX")
         )
-        let date = Date(timeIntervalSince1970: 1_782_768_600)
+        let date = Date(timeIntervalSince1970: 1_782_768_600.123)
 
         #expect(formatter.string(from: date) == "30 Jun 2026, 5:30 AM")
         #expect(formatter.dateString(from: date) == "30 Jun 2026")
+        #expect(formatter.referenceStyleString(from: date) == "Jun 30, 2026 at 5:30:00 AM")
         #expect(formatter.timeString(from: date) == "5:30:00 AM GMT")
         #expect(formatter.timestampString(from: date) == "2026-06-30T05:30:00Z")
     }
@@ -84,10 +85,71 @@ struct TimeStampCameraTests {
         #expect(store.savedMetadata?.capturedAt == overrideDate)
     }
 
+    @MainActor
+    @Test func captureUseCaseUsesProvidedOneShotLocationOverride() async throws {
+        let detectedLocation = CapturedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 19.076, longitude: 72.8777),
+            horizontalAccuracy: 8,
+            locality: "Mumbai",
+            formattedAddress: "Mumbai, Maharashtra, India"
+        )
+        let overrideLocation = CapturedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 18.6298, longitude: 73.7997),
+            horizontalAccuracy: 0,
+            locality: "Pimpri Chinchwad",
+            formattedAddress: "Pimpri Chinchwad, Maharashtra, India"
+        )
+        let store = SpyPhotoRecordStore()
+        let mapRenderer = SpyMapSnapshotRenderer(mapImage: TestImageFactory.image(color: .systemBlue))
+        let useCase = CaptureStampedPhotoUseCase(
+            locationProvider: StubLocationProvider(location: detectedLocation),
+            mapRenderer: mapRenderer,
+            imageStamper: SpyImageStamper(stampedImage: TestImageFactory.image(color: .systemGreen)),
+            photoStore: store,
+            photoLibrarySaver: SpyPhotoLibrarySaver()
+        )
+
+        _ = try await useCase.prepareStampedPhoto(
+            sourceImage: TestImageFactory.image(color: .systemOrange),
+            locationOverride: overrideLocation
+        )
+
+        #expect(store.savedMetadata?.location == overrideLocation)
+        #expect(mapRenderer.renderedCoordinate?.latitude == overrideLocation.coordinate.latitude)
+        #expect(mapRenderer.renderedCoordinate?.longitude == overrideLocation.coordinate.longitude)
+    }
+
+    @MainActor
+    @Test func prepareStampedPhotoDoesNotWaitForPhotoLibrarySave() async throws {
+        let location = CapturedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 19.076, longitude: 72.8777),
+            horizontalAccuracy: 8,
+            locality: "Mumbai",
+            formattedAddress: "Mumbai, Maharashtra, India"
+        )
+        let photoLibrarySaver = SpyPhotoLibrarySaver()
+        let useCase = CaptureStampedPhotoUseCase(
+            locationProvider: StubLocationProvider(location: location),
+            mapRenderer: SpyMapSnapshotRenderer(mapImage: TestImageFactory.image(color: .systemBlue)),
+            imageStamper: SpyImageStamper(stampedImage: TestImageFactory.image(color: .systemGreen)),
+            photoStore: SpyPhotoRecordStore(),
+            photoLibrarySaver: photoLibrarySaver
+        )
+
+        _ = try await useCase.prepareStampedPhoto(sourceImage: TestImageFactory.image(color: .systemOrange))
+
+        #expect(photoLibrarySaver.saveCount == 0)
+    }
+
 }
 
-private struct SpyPhotoLibrarySaver: PhotoLibrarySaving {
-    func saveToPhotoLibrary(_ image: UIImage) async throws {}
+@MainActor
+private final class SpyPhotoLibrarySaver: PhotoLibrarySaving {
+    private(set) var saveCount = 0
+
+    func saveToPhotoLibrary(_ image: UIImage) async throws {
+        saveCount += 1
+    }
 }
 
 private enum TestImageFactory {
@@ -107,11 +169,18 @@ private struct StubLocationProvider: LocationProviding {
     }
 }
 
-private struct SpyMapSnapshotRenderer: MapSnapshotRendering {
+@MainActor
+private final class SpyMapSnapshotRenderer: MapSnapshotRendering {
     let mapImage: UIImage
+    private(set) var renderedCoordinate: CLLocationCoordinate2D?
+
+    init(mapImage: UIImage) {
+        self.mapImage = mapImage
+    }
 
     func renderSnapshot(centeredAt coordinate: CLLocationCoordinate2D, size: CGSize) async throws -> UIImage {
-        mapImage
+        renderedCoordinate = coordinate
+        return mapImage
     }
 }
 

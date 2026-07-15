@@ -132,6 +132,13 @@ struct CameraView: View {
                 systemImage: "map.fill",
                 tint: .orange
             )
+        case .savingToPhotos:
+            InlineStatusView(
+                title: "Stamp ready",
+                message: "Final save to Photos is finishing in the background.",
+                systemImage: "photo.badge.checkmark.fill",
+                tint: .orange
+            )
         case .completed(let record):
             InlineStatusView(
                 title: "Saved to Photos",
