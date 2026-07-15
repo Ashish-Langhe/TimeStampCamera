@@ -21,6 +21,7 @@ final class CameraViewModel: ObservableObject {
     enum State: Equatable {
         case idle
         case stamping
+        case savingToPhotos(PhotoRecord)
         case completed(PhotoRecord)
         case failed(String)
     }
@@ -30,6 +31,7 @@ final class CameraViewModel: ObservableObject {
     @Published var isImagePickerPresented = false
     @Published private(set) var pickerSource: PickerSource = .camera
     @Published private(set) var pendingTimestampOverride: Date?
+    @Published private(set) var pendingLocationOverride: CapturedLocation?
 
     private let captureUseCase: CaptureStampedPhotoUseCase
 
@@ -58,17 +60,31 @@ final class CameraViewModel: ObservableObject {
         pendingTimestampOverride = date
     }
 
+    func setOneShotOverrides(timestamp: Date, location: CapturedLocation?) {
+        pendingTimestampOverride = timestamp
+        pendingLocationOverride = location
+    }
+
     func stampPickedImage(_ image: UIImage) {
         state = .stamping
         stampedImage = nil
         let timestampOverride = pendingTimestampOverride
+        let locationOverride = pendingLocationOverride
         pendingTimestampOverride = nil
+        pendingLocationOverride = nil
 
         Task {
             do {
-                let result = try await captureUseCase.execute(sourceImage: image, capturedAtOverride: timestampOverride)
-                stampedImage = result.stampedImage
-                state = .completed(result.record)
+                let preparedPhoto = try await captureUseCase.prepareStampedPhoto(
+                    sourceImage: image,
+                    capturedAtOverride: timestampOverride,
+                    locationOverride: locationOverride
+                )
+                stampedImage = preparedPhoto.stampedImage
+                state = .savingToPhotos(preparedPhoto.record)
+
+                try await captureUseCase.saveToPhotoLibrary(preparedPhoto.stampedImage)
+                state = .completed(preparedPhoto.record)
             } catch {
                 state = .failed(error.localizedDescription)
             }

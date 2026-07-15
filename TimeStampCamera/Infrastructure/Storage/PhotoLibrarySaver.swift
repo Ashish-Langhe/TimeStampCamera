@@ -9,7 +9,7 @@ struct PhotoLibrarySaver: PhotoLibrarySaving {
             throw PhotoLibrarySaveError.permissionDenied
         }
 
-        guard let data = image.jpegData(compressionQuality: 0.95) else {
+        guard let data = image.jpegData(compressionQuality: 0.88) else {
             throw PhotoLibrarySaveError.imageEncodingFailed
         }
 

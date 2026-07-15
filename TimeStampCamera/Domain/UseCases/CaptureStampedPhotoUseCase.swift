@@ -26,19 +26,47 @@ struct CaptureStampedPhotoUseCase {
         self.clock = clock
     }
 
-    func execute(sourceImage: UIImage, capturedAtOverride: Date? = nil) async throws -> CaptureStampedPhotoResult {
-        let location = try await locationProvider.currentLocation()
+    func execute(
+        sourceImage: UIImage,
+        capturedAtOverride: Date? = nil,
+        locationOverride: CapturedLocation? = nil
+    ) async throws -> CaptureStampedPhotoResult {
+        let preparedPhoto = try await prepareStampedPhoto(
+            sourceImage: sourceImage,
+            capturedAtOverride: capturedAtOverride,
+            locationOverride: locationOverride
+        )
+        try await saveToPhotoLibrary(preparedPhoto.stampedImage)
+
+        return CaptureStampedPhotoResult(record: preparedPhoto.record, stampedImage: preparedPhoto.stampedImage)
+    }
+
+    func prepareStampedPhoto(
+        sourceImage: UIImage,
+        capturedAtOverride: Date? = nil,
+        locationOverride: CapturedLocation? = nil
+    ) async throws -> PreparedStampedPhoto {
+        let location: CapturedLocation
+        if let locationOverride {
+            location = locationOverride
+        } else {
+            location = try await locationProvider.currentLocation()
+        }
+
         let mapImage = try await mapRenderer.renderSnapshot(
             centeredAt: location.coordinate,
-            size: CGSize(width: 360, height: 220)
+            size: CGSize(width: 300, height: 185)
         )
         let metadata = StampMetadata(capturedAt: capturedAtOverride ?? clock(), location: location, mapImage: mapImage)
-        let preparedImage = sourceImage.resizedForStamping(maxPixelDimension: 3_200)
+        let preparedImage = sourceImage.resizedForStamping(maxPixelDimension: 2_400)
         let stampedImage = imageStamper.stamp(image: preparedImage, metadata: metadata)
         let record = try photoStore.saveStampedPhoto(stampedImage, metadata: metadata)
-        try await photoLibrarySaver.saveToPhotoLibrary(stampedImage)
 
-        return CaptureStampedPhotoResult(record: record, stampedImage: stampedImage)
+        return PreparedStampedPhoto(record: record, stampedImage: stampedImage)
+    }
+
+    func saveToPhotoLibrary(_ stampedImage: UIImage) async throws {
+        try await photoLibrarySaver.saveToPhotoLibrary(stampedImage)
     }
 }
 
@@ -68,4 +96,9 @@ struct CaptureStampedPhotoResult: Equatable {
     static func == (lhs: CaptureStampedPhotoResult, rhs: CaptureStampedPhotoResult) -> Bool {
         lhs.record == rhs.record && lhs.stampedImage.pngData() == rhs.stampedImage.pngData()
     }
+}
+
+struct PreparedStampedPhoto: Equatable {
+    let record: PhotoRecord
+    let stampedImage: UIImage
 }

@@ -45,7 +45,7 @@ struct DefaultImageStamper: ImageStamping {
     }
 
     private func drawHeaderTitle(in rect: CGRect, fontSize: CGFloat) {
-        let title = "TimeStamp Camera"
+        let title = "Timestamp Camera"
         let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
         let iconSize = fontSize * 0.92
         let spacing = fontSize * 0.22
