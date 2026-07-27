@@ -6,6 +6,7 @@
 //
 
 import CoreLocation
+import Foundation
 import Testing
 import UIKit
 @testable import TimeStampCamera
@@ -146,6 +147,25 @@ struct TimeStampCameraTests {
 
         #expect(store.savedMetadata?.fontConfiguration == fontConfiguration)
         #expect(store.savedMetadata?.mapConfiguration == mapConfiguration)
+    }
+
+    @Test func userDefaultsStampPresentationSettingsStorePersistsStampPresentationConfiguration() {
+        let suiteName = "TimeStampCameraTests.\(UUID().uuidString)"
+        let userDefaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var store = UserDefaultsStampPresentationSettingsStore(userDefaults: userDefaults)
+        let fontConfiguration = StampFontConfiguration(timeSize: 66, locationSize: 44)
+        let mapConfiguration = StampMapConfiguration(sizeScale: 1.4)
+
+        store.fontConfiguration = fontConfiguration
+        store.mapConfiguration = mapConfiguration
+
+        let reloadedStore = UserDefaultsStampPresentationSettingsStore(userDefaults: userDefaults)
+        #expect(reloadedStore.fontConfiguration == fontConfiguration)
+        #expect(reloadedStore.mapConfiguration == mapConfiguration)
     }
 
     @MainActor

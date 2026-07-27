@@ -36,9 +36,14 @@ final class CameraViewModel: ObservableObject {
     @Published private(set) var pendingMapConfiguration: StampMapConfiguration?
 
     private let captureUseCase: CaptureStampedPhotoUseCase
+    private let stampPresentationSettingsStore: StampPresentationSettingsStoring
 
-    init(captureUseCase: CaptureStampedPhotoUseCase) {
+    init(
+        captureUseCase: CaptureStampedPhotoUseCase,
+        stampPresentationSettingsStore: StampPresentationSettingsStoring? = nil
+    ) {
         self.captureUseCase = captureUseCase
+        self.stampPresentationSettingsStore = stampPresentationSettingsStore ?? UserDefaultsStampPresentationSettingsStore()
     }
 
     var isStamping: Bool {
@@ -75,8 +80,8 @@ final class CameraViewModel: ObservableObject {
         stampedImage = nil
         let timestampOverride = pendingTimestampOverride
         let locationOverride = pendingLocationOverride
-        let fontConfiguration = pendingFontConfiguration ?? .default
-        let mapConfiguration = pendingMapConfiguration ?? .default
+        let fontConfiguration = pendingFontConfiguration ?? stampPresentationSettingsStore.fontConfiguration
+        let mapConfiguration = pendingMapConfiguration ?? stampPresentationSettingsStore.mapConfiguration
         pendingTimestampOverride = nil
         pendingLocationOverride = nil
         pendingFontConfiguration = nil
@@ -105,5 +110,64 @@ final class CameraViewModel: ObservableObject {
     func reset() {
         state = .idle
         stampedImage = nil
+    }
+}
+
+protocol StampPresentationSettingsStoring {
+    var fontConfiguration: StampFontConfiguration { get set }
+    var mapConfiguration: StampMapConfiguration { get set }
+}
+
+enum StampPresentationSettingsKeys {
+    static let timeFontSize = "stampPresentation.timeFontSize"
+    static let locationFontSize = "stampPresentation.locationFontSize"
+    static let mapSizeScale = "stampPresentation.mapSizeScale"
+}
+
+struct UserDefaultsStampPresentationSettingsStore: StampPresentationSettingsStoring {
+    private let userDefaults: UserDefaults
+
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
+    var fontConfiguration: StampFontConfiguration {
+        get {
+            StampFontConfiguration(
+                timeSize: storedCGFloat(
+                    forKey: StampPresentationSettingsKeys.timeFontSize,
+                    fallback: StampFontConfiguration.default.timeSize
+                ),
+                locationSize: storedCGFloat(
+                    forKey: StampPresentationSettingsKeys.locationFontSize,
+                    fallback: StampFontConfiguration.default.locationSize
+                )
+            )
+        }
+        set {
+            userDefaults.set(Double(newValue.timeSize), forKey: StampPresentationSettingsKeys.timeFontSize)
+            userDefaults.set(Double(newValue.locationSize), forKey: StampPresentationSettingsKeys.locationFontSize)
+        }
+    }
+
+    var mapConfiguration: StampMapConfiguration {
+        get {
+            StampMapConfiguration(
+                sizeScale: storedCGFloat(
+                    forKey: StampPresentationSettingsKeys.mapSizeScale,
+                    fallback: StampMapConfiguration.default.sizeScale
+                )
+            )
+        }
+        set {
+            userDefaults.set(Double(newValue.sizeScale), forKey: StampPresentationSettingsKeys.mapSizeScale)
+        }
+    }
+
+    private func storedCGFloat(forKey key: String, fallback: CGFloat) -> CGFloat {
+        guard userDefaults.object(forKey: key) != nil else {
+            return fallback
+        }
+        return CGFloat(userDefaults.double(forKey: key))
     }
 }

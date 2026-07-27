@@ -299,9 +299,9 @@ private struct StampSettingsView: View {
     @State private var useCustomLocation = false
     @State private var selectedCustomLocation: CapturedLocation?
     @State private var isLocationPickerPresented = false
-    @State private var timeFontSize = Double(StampFontConfiguration.default.timeSize)
-    @State private var locationFontSize = Double(StampFontConfiguration.default.locationSize)
-    @State private var mapSizeScale = Double(StampMapConfiguration.default.sizeScale)
+    @AppStorage(StampPresentationSettingsKeys.timeFontSize) private var timeFontSize = Double(StampFontConfiguration.default.timeSize)
+    @AppStorage(StampPresentationSettingsKeys.locationFontSize) private var locationFontSize = Double(StampFontConfiguration.default.locationSize)
+    @AppStorage(StampPresentationSettingsKeys.mapSizeScale) private var mapSizeScale = Double(StampMapConfiguration.default.sizeScale)
     let onUseOnce: (Date, CapturedLocation?, StampFontConfiguration, StampMapConfiguration) -> Void
     let onStampExistingPhoto: (Date, CapturedLocation?, StampFontConfiguration, StampMapConfiguration) -> Void
 
@@ -388,7 +388,7 @@ private struct StampSettingsView: View {
                 } header: {
                     Text("Stamp Text Size")
                 } footer: {
-                    Text("These sizes apply to the next stamped image only.")
+                    Text("These sizes stay saved until you change them again.")
                 }
 
                 Section {
@@ -396,7 +396,7 @@ private struct StampSettingsView: View {
                 } header: {
                     Text("Map Size")
                 } footer: {
-                    Text("This changes the mini map size on the next stamped image only.")
+                    Text("This mini map size stays saved until you change it again.")
                 }
 
                 Section {
