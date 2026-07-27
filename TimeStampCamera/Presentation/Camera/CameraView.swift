@@ -5,9 +5,8 @@ import UIKit
 struct CameraView: View {
     @StateObject private var viewModel: CameraViewModel
     @State private var didAutoOpenCamera = false
-    @State private var hiddenTapCount = 0
-    @State private var isSecretSettingsPresented = false
-    @State private var shouldOpenPhotoLibraryAfterSecretDismiss = false
+    @State private var isStampSettingsPresented = false
+    @State private var shouldOpenPhotoLibraryAfterSettingsDismiss = false
 
     init(viewModel: CameraViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -27,14 +26,12 @@ struct CameraView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                CameraHeaderView()
+                CameraHeaderView {
+                    isStampSettingsPresented = true
+                }
                     .padding(.top, 4)
 
                 StampedPhotoPreview(image: viewModel.stampedImage)
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                    .onTapGesture {
-                        handlePreviewTap()
-                    }
                     .overlay(alignment: .center) {
                         if viewModel.isStamping {
                             ProgressView("Stamping photo")
@@ -83,36 +80,24 @@ struct CameraView: View {
             }
             .ignoresSafeArea()
         }
-        .sheet(isPresented: $isSecretSettingsPresented) {
-            SecretTimestampSettingsView(
+        .sheet(isPresented: $isStampSettingsPresented) {
+            StampSettingsView(
                 onUseOnce: { selectedDate, selectedLocation in
                     viewModel.setOneShotOverrides(timestamp: selectedDate, location: selectedLocation)
                 },
                 onStampExistingPhoto: { selectedDate, selectedLocation in
                     viewModel.setOneShotOverrides(timestamp: selectedDate, location: selectedLocation)
-                    shouldOpenPhotoLibraryAfterSecretDismiss = true
+                    shouldOpenPhotoLibraryAfterSettingsDismiss = true
                 }
             )
             .presentationDetents([.medium, .large])
         }
-        .onChange(of: isSecretSettingsPresented) { _, isPresented in
-            guard !isPresented, shouldOpenPhotoLibraryAfterSecretDismiss else {
+        .onChange(of: isStampSettingsPresented) { _, isPresented in
+            guard !isPresented, shouldOpenPhotoLibraryAfterSettingsDismiss else {
                 return
             }
-            shouldOpenPhotoLibraryAfterSecretDismiss = false
+            shouldOpenPhotoLibraryAfterSettingsDismiss = false
             viewModel.openPhotoLibraryForStamping()
-        }
-    }
-
-    private func handlePreviewTap() {
-        guard !viewModel.isStamping else {
-            return
-        }
-
-        hiddenTapCount += 1
-        if hiddenTapCount >= 5 {
-            hiddenTapCount = 0
-            isSecretSettingsPresented = true
         }
     }
 
@@ -185,6 +170,8 @@ private enum CameraPalette {
 }
 
 private struct CameraHeaderView: View {
+    let onSettingsTapped: () -> Void
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -212,16 +199,28 @@ private struct CameraHeaderView: View {
 
             Spacer(minLength: 0)
 
-            Label("Live", systemImage: "location.fill")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(CameraPalette.teal)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(.white.opacity(0.72), in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(CameraPalette.border, lineWidth: 1)
+            HStack(spacing: 8) {
+                Label("Live", systemImage: "location.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(CameraPalette.teal)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(.white.opacity(0.72), in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .stroke(CameraPalette.border, lineWidth: 1)
+                    }
+
+                Button {
+                    onSettingsTapped()
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 17, weight: .bold))
+                        .frame(width: 36, height: 36)
                 }
+                .buttonStyle(CameraHeaderIconButtonStyle())
+                .accessibilityLabel("Stamp settings")
+            }
         }
         .padding(12)
         .background(.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 8))
@@ -229,6 +228,19 @@ private struct CameraHeaderView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(CameraPalette.border, lineWidth: 1)
         }
+    }
+}
+
+private struct CameraHeaderIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(CameraPalette.teal)
+            .background(.white.opacity(configuration.isPressed ? 0.58 : 0.78), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(CameraPalette.border, lineWidth: 1)
+            }
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
     }
 }
 
@@ -268,7 +280,7 @@ private struct CameraIconButtonStyle: ButtonStyle {
     }
 }
 
-private struct SecretTimestampSettingsView: View {
+private struct StampSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedDate = Date()
     @State private var selectedSecond = Calendar.current.component(.second, from: Date())
@@ -291,7 +303,7 @@ private struct SecretTimestampSettingsView: View {
                     )
                     .datePickerStyle(.graphical)
                 } footer: {
-                    Text("This timestamp applies once. Location is still detected normally.")
+                    Text("Use this when you need the next stamped photo to use a specific date and time.")
                 }
 
                 Section {
@@ -349,7 +361,7 @@ private struct SecretTimestampSettingsView: View {
                     Text("Choose a photo from your library, stamp it, and save the stamped copy back to Photos.")
                 }
             }
-            .navigationTitle("Secret Settings")
+            .navigationTitle("Stamp Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -358,7 +370,7 @@ private struct SecretTimestampSettingsView: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Use Once") {
+                    Button("Apply Once") {
                         onUseOnce(customTimestamp, customLocation)
                         dismiss()
                     }

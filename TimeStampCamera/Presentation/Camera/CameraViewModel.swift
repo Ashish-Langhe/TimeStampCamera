@@ -56,10 +56,6 @@ final class CameraViewModel: ObservableObject {
         isImagePickerPresented = true
     }
 
-    func setOneShotTimestampOverride(_ date: Date) {
-        pendingTimestampOverride = date
-    }
-
     func setOneShotOverrides(timestamp: Date, location: CapturedLocation?) {
         pendingTimestampOverride = timestamp
         pendingLocationOverride = location
