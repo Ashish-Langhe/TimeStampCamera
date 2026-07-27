@@ -17,28 +17,33 @@ struct DefaultImageStamper: ImageStamping {
         return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: image.size))
             drawTopRightStamp(metadata: metadata, imageSize: image.size)
-            drawMap(metadata.mapImage, imageSize: image.size, stampLineCount: stampLines(for: metadata).count)
+            drawMap(metadata.mapImage, imageSize: image.size, metadata: metadata)
         }
     }
 
     private func drawTopRightStamp(metadata: StampMetadata, imageSize: CGSize) {
-        let layout = stampLayout(for: imageSize)
-        let fontSize = layout.fontSize
+        let layout = stampLayout(for: imageSize, fontConfiguration: metadata.fontConfiguration)
 
         let lines = stampLines(for: metadata)
-        let rect = layout.rect(lineCount: lines.count)
+        let rect = layout.rect(locationLineCount: max(lines.count - 1, 0))
         drawTextBacking(behind: rect, in: imageSize)
         drawHeaderTitle(
             in: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: layout.headerHeight),
-            fontSize: fontSize
+            fontSize: layout.headerFontSize
         )
 
         for (index, line) in lines.enumerated() {
+            let isTimeLine = index == 0
+            let yPosition = isTimeLine
+                ? rect.minY + layout.headerHeight + layout.headerSpacing
+                : rect.minY + layout.headerHeight + layout.headerSpacing + layout.timeLineHeight + CGFloat(index - 1) * layout.locationLineHeight
+            let lineHeight = isTimeLine ? layout.timeLineHeight : layout.locationLineHeight
+            let fontSize = isTimeLine ? layout.timeFontSize : layout.locationFontSize
             let lineRect = CGRect(
                 x: rect.minX,
-                y: rect.minY + layout.headerHeight + layout.headerSpacing + CGFloat(index) * layout.lineHeight,
+                y: yPosition,
                 width: rect.width,
-                height: layout.lineHeight * 1.08
+                height: lineHeight * 1.08
             )
             drawShadowed(line, in: lineRect, font: .systemFont(ofSize: fontSize, weight: .semibold), alignment: .right)
         }
@@ -173,11 +178,15 @@ struct DefaultImageStamper: ImageStamping {
         ]
     }
 
-    private func drawMap(_ mapImage: UIImage, imageSize: CGSize, stampLineCount: Int) {
+    private func drawMap(_ mapImage: UIImage, imageSize: CGSize, metadata: StampMetadata) {
         let margin = imageSize.width * 0.045
-        let mapWidth = min(imageSize.width * 0.52, 560)
+        let defaultMapWidth = min(imageSize.width * 0.52, 560)
+        let mapWidth = min(defaultMapWidth * metadata.mapConfiguration.sizeScale, imageSize.width * 0.72)
         let mapHeight = mapWidth * 0.66
-        let stampRect = stampLayout(for: imageSize).rect(lineCount: stampLineCount)
+        let stampRect = stampLayout(
+            for: imageSize,
+            fontConfiguration: metadata.fontConfiguration
+        ).rect(locationLineCount: max(stampLines(for: metadata).count - 1, 0))
         let availableBottom = imageSize.height - margin
         let preferredY = stampRect.maxY + margin * 0.7
         let yPosition = min(preferredY, max(stampRect.maxY + margin * 0.25, availableBottom - mapHeight))
@@ -222,18 +231,24 @@ struct DefaultImageStamper: ImageStamping {
         (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes, context: nil)
     }
 
-    private func stampLayout(for imageSize: CGSize) -> StampLayout {
+    private func stampLayout(for imageSize: CGSize, fontConfiguration: StampFontConfiguration) -> StampLayout {
         let margin = imageSize.width * 0.045
         let width = imageSize.width * 0.72
-        let fontSize = min(max(imageSize.width * 0.046, 30), 54)
-        let lineHeight = fontSize * 1.18
-        let headerHeight = lineHeight
-        let headerSpacing = lineHeight * 0.16
+        let timeFontSize = fontConfiguration.timeSize
+        let locationFontSize = fontConfiguration.locationSize
+        let headerFontSize = min(max(min(timeFontSize, locationFontSize) * 0.88, 26), 58)
+        let timeLineHeight = timeFontSize * 1.18
+        let locationLineHeight = locationFontSize * 1.18
+        let headerHeight = headerFontSize * 1.18
+        let headerSpacing = max(headerHeight * 0.16, 8)
         return StampLayout(
             origin: CGPoint(x: imageSize.width - width - margin, y: margin * 0.7),
             width: width,
-            fontSize: fontSize,
-            lineHeight: lineHeight,
+            timeFontSize: timeFontSize,
+            locationFontSize: locationFontSize,
+            headerFontSize: headerFontSize,
+            timeLineHeight: timeLineHeight,
+            locationLineHeight: locationLineHeight,
             headerHeight: headerHeight,
             headerSpacing: headerSpacing
         )
@@ -243,17 +258,20 @@ struct DefaultImageStamper: ImageStamping {
 private struct StampLayout {
     let origin: CGPoint
     let width: CGFloat
-    let fontSize: CGFloat
-    let lineHeight: CGFloat
+    let timeFontSize: CGFloat
+    let locationFontSize: CGFloat
+    let headerFontSize: CGFloat
+    let timeLineHeight: CGFloat
+    let locationLineHeight: CGFloat
     let headerHeight: CGFloat
     let headerSpacing: CGFloat
 
-    func rect(lineCount: Int) -> CGRect {
+    func rect(locationLineCount: Int) -> CGRect {
         return CGRect(
             x: origin.x,
             y: origin.y,
             width: width,
-            height: headerHeight + headerSpacing + CGFloat(lineCount) * lineHeight + lineHeight * 0.34
+            height: headerHeight + headerSpacing + timeLineHeight + CGFloat(locationLineCount) * locationLineHeight + locationLineHeight * 0.34
         )
     }
 }

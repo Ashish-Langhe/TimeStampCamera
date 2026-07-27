@@ -120,6 +120,35 @@ struct TimeStampCameraTests {
     }
 
     @MainActor
+    @Test func captureUseCaseUsesProvidedStampPresentationConfiguration() async throws {
+        let location = CapturedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 19.076, longitude: 72.8777),
+            horizontalAccuracy: 8,
+            locality: "Mumbai",
+            formattedAddress: "Mumbai, Maharashtra, India"
+        )
+        let fontConfiguration = StampFontConfiguration(timeSize: 68, locationSize: 42)
+        let mapConfiguration = StampMapConfiguration(sizeScale: 1.35)
+        let store = SpyPhotoRecordStore()
+        let useCase = CaptureStampedPhotoUseCase(
+            locationProvider: StubLocationProvider(location: location),
+            mapRenderer: SpyMapSnapshotRenderer(mapImage: TestImageFactory.image(color: .systemBlue)),
+            imageStamper: SpyImageStamper(stampedImage: TestImageFactory.image(color: .systemGreen)),
+            photoStore: store,
+            photoLibrarySaver: SpyPhotoLibrarySaver()
+        )
+
+        _ = try await useCase.prepareStampedPhoto(
+            sourceImage: TestImageFactory.image(color: .systemOrange),
+            fontConfiguration: fontConfiguration,
+            mapConfiguration: mapConfiguration
+        )
+
+        #expect(store.savedMetadata?.fontConfiguration == fontConfiguration)
+        #expect(store.savedMetadata?.mapConfiguration == mapConfiguration)
+    }
+
+    @MainActor
     @Test func prepareStampedPhotoDoesNotWaitForPhotoLibrarySave() async throws {
         let location = CapturedLocation(
             coordinate: CLLocationCoordinate2D(latitude: 19.076, longitude: 72.8777),

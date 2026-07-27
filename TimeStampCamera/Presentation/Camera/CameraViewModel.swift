@@ -32,6 +32,8 @@ final class CameraViewModel: ObservableObject {
     @Published private(set) var pickerSource: PickerSource = .camera
     @Published private(set) var pendingTimestampOverride: Date?
     @Published private(set) var pendingLocationOverride: CapturedLocation?
+    @Published private(set) var pendingFontConfiguration: StampFontConfiguration?
+    @Published private(set) var pendingMapConfiguration: StampMapConfiguration?
 
     private let captureUseCase: CaptureStampedPhotoUseCase
 
@@ -56,9 +58,16 @@ final class CameraViewModel: ObservableObject {
         isImagePickerPresented = true
     }
 
-    func setOneShotOverrides(timestamp: Date, location: CapturedLocation?) {
+    func setOneShotOverrides(
+        timestamp: Date,
+        location: CapturedLocation?,
+        fontConfiguration: StampFontConfiguration = .default,
+        mapConfiguration: StampMapConfiguration = .default
+    ) {
         pendingTimestampOverride = timestamp
         pendingLocationOverride = location
+        pendingFontConfiguration = fontConfiguration
+        pendingMapConfiguration = mapConfiguration
     }
 
     func stampPickedImage(_ image: UIImage) {
@@ -66,15 +75,21 @@ final class CameraViewModel: ObservableObject {
         stampedImage = nil
         let timestampOverride = pendingTimestampOverride
         let locationOverride = pendingLocationOverride
+        let fontConfiguration = pendingFontConfiguration ?? .default
+        let mapConfiguration = pendingMapConfiguration ?? .default
         pendingTimestampOverride = nil
         pendingLocationOverride = nil
+        pendingFontConfiguration = nil
+        pendingMapConfiguration = nil
 
         Task {
             do {
                 let preparedPhoto = try await captureUseCase.prepareStampedPhoto(
                     sourceImage: image,
                     capturedAtOverride: timestampOverride,
-                    locationOverride: locationOverride
+                    locationOverride: locationOverride,
+                    fontConfiguration: fontConfiguration,
+                    mapConfiguration: mapConfiguration
                 )
                 stampedImage = preparedPhoto.stampedImage
                 state = .savingToPhotos(preparedPhoto.record)

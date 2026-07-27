@@ -29,12 +29,16 @@ struct CaptureStampedPhotoUseCase {
     func execute(
         sourceImage: UIImage,
         capturedAtOverride: Date? = nil,
-        locationOverride: CapturedLocation? = nil
+        locationOverride: CapturedLocation? = nil,
+        fontConfiguration: StampFontConfiguration = .default,
+        mapConfiguration: StampMapConfiguration = .default
     ) async throws -> CaptureStampedPhotoResult {
         let preparedPhoto = try await prepareStampedPhoto(
             sourceImage: sourceImage,
             capturedAtOverride: capturedAtOverride,
-            locationOverride: locationOverride
+            locationOverride: locationOverride,
+            fontConfiguration: fontConfiguration,
+            mapConfiguration: mapConfiguration
         )
         try await saveToPhotoLibrary(preparedPhoto.stampedImage)
 
@@ -44,7 +48,9 @@ struct CaptureStampedPhotoUseCase {
     func prepareStampedPhoto(
         sourceImage: UIImage,
         capturedAtOverride: Date? = nil,
-        locationOverride: CapturedLocation? = nil
+        locationOverride: CapturedLocation? = nil,
+        fontConfiguration: StampFontConfiguration = .default,
+        mapConfiguration: StampMapConfiguration = .default
     ) async throws -> PreparedStampedPhoto {
         let location: CapturedLocation
         if let locationOverride {
@@ -57,7 +63,13 @@ struct CaptureStampedPhotoUseCase {
             centeredAt: location.coordinate,
             size: CGSize(width: 300, height: 185)
         )
-        let metadata = StampMetadata(capturedAt: capturedAtOverride ?? clock(), location: location, mapImage: mapImage)
+        let metadata = StampMetadata(
+            capturedAt: capturedAtOverride ?? clock(),
+            location: location,
+            mapImage: mapImage,
+            fontConfiguration: fontConfiguration,
+            mapConfiguration: mapConfiguration
+        )
         let preparedImage = sourceImage.resizedForStamping(maxPixelDimension: 2_400)
         let stampedImage = imageStamper.stamp(image: preparedImage, metadata: metadata)
         let record = try photoStore.saveStampedPhoto(stampedImage, metadata: metadata)

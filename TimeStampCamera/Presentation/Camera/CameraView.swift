@@ -84,11 +84,21 @@ struct CameraView: View {
         }
         .sheet(isPresented: $isStampSettingsPresented) {
             StampSettingsView(
-                onUseOnce: { selectedDate, selectedLocation in
-                    viewModel.setOneShotOverrides(timestamp: selectedDate, location: selectedLocation)
+                onUseOnce: { selectedDate, selectedLocation, fontConfiguration, mapConfiguration in
+                    viewModel.setOneShotOverrides(
+                        timestamp: selectedDate,
+                        location: selectedLocation,
+                        fontConfiguration: fontConfiguration,
+                        mapConfiguration: mapConfiguration
+                    )
                 },
-                onStampExistingPhoto: { selectedDate, selectedLocation in
-                    viewModel.setOneShotOverrides(timestamp: selectedDate, location: selectedLocation)
+                onStampExistingPhoto: { selectedDate, selectedLocation, fontConfiguration, mapConfiguration in
+                    viewModel.setOneShotOverrides(
+                        timestamp: selectedDate,
+                        location: selectedLocation,
+                        fontConfiguration: fontConfiguration,
+                        mapConfiguration: mapConfiguration
+                    )
                     shouldOpenPhotoLibraryAfterSettingsDismiss = true
                 }
             )
@@ -289,8 +299,11 @@ private struct StampSettingsView: View {
     @State private var useCustomLocation = false
     @State private var selectedCustomLocation: CapturedLocation?
     @State private var isLocationPickerPresented = false
-    let onUseOnce: (Date, CapturedLocation?) -> Void
-    let onStampExistingPhoto: (Date, CapturedLocation?) -> Void
+    @State private var timeFontSize = Double(StampFontConfiguration.default.timeSize)
+    @State private var locationFontSize = Double(StampFontConfiguration.default.locationSize)
+    @State private var mapSizeScale = Double(StampMapConfiguration.default.sizeScale)
+    let onUseOnce: (Date, CapturedLocation?, StampFontConfiguration, StampMapConfiguration) -> Void
+    let onStampExistingPhoto: (Date, CapturedLocation?, StampFontConfiguration, StampMapConfiguration) -> Void
 
     var body: some View {
         NavigationStack {
@@ -363,8 +376,32 @@ private struct StampSettingsView: View {
                 }
 
                 Section {
+                    StampFontSizeSlider(
+                        title: "Time font size",
+                        value: $timeFontSize
+                    )
+
+                    StampFontSizeSlider(
+                        title: "Location font size",
+                        value: $locationFontSize
+                    )
+                } header: {
+                    Text("Stamp Text Size")
+                } footer: {
+                    Text("These sizes apply to the next stamped image only.")
+                }
+
+                Section {
+                    StampMapSizeSlider(value: $mapSizeScale)
+                } header: {
+                    Text("Map Size")
+                } footer: {
+                    Text("This changes the mini map size on the next stamped image only.")
+                }
+
+                Section {
                     Button {
-                        onStampExistingPhoto(customTimestamp, customLocation)
+                        onStampExistingPhoto(customTimestamp, customLocation, fontConfiguration, mapConfiguration)
                         dismiss()
                     } label: {
                         Label("Stamp Existing Photo", systemImage: "photo.on.rectangle")
@@ -384,7 +421,7 @@ private struct StampSettingsView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply Once") {
-                        onUseOnce(customTimestamp, customLocation)
+                        onUseOnce(customTimestamp, customLocation, fontConfiguration, mapConfiguration)
                         dismiss()
                     }
                     .fontWeight(.semibold)
@@ -405,6 +442,17 @@ private struct StampSettingsView: View {
         components.second = selectedSecond
         components.nanosecond = 0
         return Calendar.current.date(from: components) ?? selectedDate
+    }
+
+    private var fontConfiguration: StampFontConfiguration {
+        StampFontConfiguration(
+            timeSize: CGFloat(timeFontSize),
+            locationSize: CGFloat(locationFontSize)
+        )
+    }
+
+    private var mapConfiguration: StampMapConfiguration {
+        StampMapConfiguration(sizeScale: CGFloat(mapSizeScale))
     }
 
     private var customLocation: CapturedLocation? {
@@ -788,5 +836,44 @@ private extension Array where Element: Hashable {
     func removingDuplicates() -> [Element] {
         var seen = Set<Element>()
         return filter { seen.insert($0).inserted }
+    }
+}
+
+private struct StampFontSizeSlider: View {
+    let title: String
+    @Binding var value: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int(value))")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(value: $value, in: 30...82, step: 1)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct StampMapSizeSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Map size")
+                Spacer()
+                Text("\(Int(value * 100))%")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(value: $value, in: 0.65...1.45, step: 0.05)
+        }
+        .padding(.vertical, 4)
     }
 }
