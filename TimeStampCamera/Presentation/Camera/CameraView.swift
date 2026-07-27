@@ -1,4 +1,6 @@
+import Combine
 import CoreLocation
+import MapKit
 import SwiftUI
 import UIKit
 
@@ -285,10 +287,8 @@ private struct StampSettingsView: View {
     @State private var selectedDate = Date()
     @State private var selectedSecond = Calendar.current.component(.second, from: Date())
     @State private var useCustomLocation = false
-    @State private var latitudeText = ""
-    @State private var longitudeText = ""
-    @State private var localityText = ""
-    @State private var addressText = ""
+    @State private var selectedCustomLocation: CapturedLocation?
+    @State private var isLocationPickerPresented = false
     let onUseOnce: (Date, CapturedLocation?) -> Void
     let onStampExistingPhoto: (Date, CapturedLocation?) -> Void
 
@@ -326,19 +326,32 @@ private struct StampSettingsView: View {
                     Toggle("Use custom location", isOn: $useCustomLocation)
 
                     if useCustomLocation {
-                        TextField("Latitude", text: $latitudeText)
-                            .keyboardType(.decimalPad)
-                            .textInputAutocapitalization(.never)
-                        TextField("Longitude", text: $longitudeText)
-                            .keyboardType(.decimalPad)
-                            .textInputAutocapitalization(.never)
-                        TextField("Location name", text: $localityText)
-                            .textInputAutocapitalization(.words)
-                        TextField("Address on stamp", text: $addressText, axis: .vertical)
-                            .lineLimit(2...3)
+                        Button {
+                            isLocationPickerPresented = true
+                        } label: {
+                            Label(
+                                selectedCustomLocation == nil ? "Browse and Select on Map" : "Change Selected Location",
+                                systemImage: "map"
+                            )
+                        }
 
-                        if customLocation == nil {
-                            Text("Enter a valid latitude from -90 to 90 and longitude from -180 to 180.")
+                        if let selectedCustomLocation {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(selectedCustomLocation.locality ?? "Selected Location")
+                                    .font(.subheadline.weight(.semibold))
+                                if let formattedAddress = selectedCustomLocation.formattedAddress {
+                                    Text(formattedAddress)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(
+                                    "Lat \(selectedCustomLocation.coordinate.latitude.formatted(.number.precision(.fractionLength(5)))), Long \(selectedCustomLocation.coordinate.longitude.formatted(.number.precision(.fractionLength(5))))"
+                                )
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        } else {
+                            Text("Select a place or tap the map so the stamp can use the exact pin and coordinates.")
                                 .font(.footnote)
                                 .foregroundStyle(.red)
                         }
@@ -346,7 +359,7 @@ private struct StampSettingsView: View {
                 } header: {
                     Text("Location")
                 } footer: {
-                    Text("When enabled, the selected coordinate is used for the stamp text and the map pin.")
+                    Text("When enabled, this coordinate is used for the stamp text and map pin. Otherwise, the app uses your current location.")
                 }
 
                 Section {
@@ -378,6 +391,12 @@ private struct StampSettingsView: View {
                     .disabled(useCustomLocation && customLocation == nil)
                 }
             }
+            .sheet(isPresented: $isLocationPickerPresented) {
+                LocationSelectionView(initialLocation: selectedCustomLocation) { location in
+                    selectedCustomLocation = location
+                    useCustomLocation = true
+                }
+            }
         }
     }
 
@@ -389,26 +408,385 @@ private struct StampSettingsView: View {
     }
 
     private var customLocation: CapturedLocation? {
-        guard useCustomLocation,
-              let latitude = Double(latitudeText.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let longitude = Double(longitudeText.trimmingCharacters(in: .whitespacesAndNewlines)),
-              (-90...90).contains(latitude),
-              (-180...180).contains(longitude) else {
-            return nil
+        useCustomLocation ? selectedCustomLocation : nil
+    }
+}
+
+private struct LocationSelectionView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var viewModel: LocationSelectionViewModel
+    let onSelect: (CapturedLocation) -> Void
+
+    init(initialLocation: CapturedLocation?, onSelect: @escaping (CapturedLocation) -> Void) {
+        _viewModel = StateObject(wrappedValue: LocationSelectionViewModel(initialLocation: initialLocation))
+        self.onSelect = onSelect
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                searchHeader
+
+                MapCoordinatePicker(
+                    selectedCoordinate: $viewModel.selectedCoordinate,
+                    selectedTitle: viewModel.selectedLocation?.locality ?? "Selected Location"
+                )
+                .frame(height: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .task(id: viewModel.selectedCoordinate.latitude) {
+                    await viewModel.reverseGeocodeSelectedCoordinate()
+                }
+                .task(id: viewModel.selectedCoordinate.longitude) {
+                    await viewModel.reverseGeocodeSelectedCoordinate()
+                }
+
+                List {
+                    if let selectedLocation = viewModel.selectedLocation {
+                        Section("Selected Pin") {
+                            LocationSummaryRow(location: selectedLocation)
+                        }
+                    }
+
+                    if viewModel.isSearching {
+                        Section {
+                            HStack {
+                                ProgressView()
+                                Text("Searching places")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else if !viewModel.results.isEmpty {
+                        Section("Search Results") {
+                            ForEach(viewModel.results) { result in
+                                Button {
+                                    viewModel.selectSearchResult(result)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(result.title)
+                                            .foregroundStyle(.primary)
+                                        if let subtitle = result.subtitle {
+                                            Text(subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .padding(.vertical, 3)
+                                }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+            .navigationTitle("Select Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $viewModel.query, prompt: "Search area, gym, restaurant")
+            .onSubmit(of: .search) {
+                Task {
+                    await viewModel.search()
+                }
+            }
+            .onChange(of: viewModel.query) { _, query in
+                viewModel.scheduleSearch(for: query)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use Pin") {
+                        guard let selectedLocation = viewModel.selectedLocation else {
+                            return
+                        }
+                        onSelect(selectedLocation)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(viewModel.selectedLocation == nil)
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private var searchHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Search for a place or tap the map to set the exact stamp pin.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+}
+
+private struct LocationSummaryRow: View {
+    let location: CapturedLocation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(location.locality ?? "Selected Location")
+                .font(.subheadline.weight(.semibold))
+            if let formattedAddress = location.formattedAddress {
+                Text(formattedAddress)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(
+                "Lat \(location.coordinate.latitude.formatted(.number.precision(.fractionLength(5)))), Long \(location.coordinate.longitude.formatted(.number.precision(.fractionLength(5))))"
+            )
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct LocationSearchResult: Identifiable {
+    let id = UUID()
+    let title: String
+    let subtitle: String?
+    let coordinate: CLLocationCoordinate2D
+    let location: CapturedLocation
+}
+
+@MainActor
+private final class LocationSelectionViewModel: ObservableObject {
+    @Published var query = ""
+    @Published var results: [LocationSearchResult] = []
+    @Published var selectedCoordinate: CLLocationCoordinate2D
+    @Published var selectedLocation: CapturedLocation?
+    @Published var isSearching = false
+    @Published var errorMessage: String?
+
+    private let geocoder = CLGeocoder()
+    private var searchTask: Task<Void, Never>?
+    private var reverseGeocodeTask: Task<Void, Never>?
+
+    init(initialLocation: CapturedLocation?) {
+        let defaultCoordinate = CLLocationCoordinate2D(latitude: 19.0760, longitude: 72.8777)
+        selectedCoordinate = initialLocation?.coordinate ?? defaultCoordinate
+        selectedLocation = initialLocation
+    }
+
+    func scheduleSearch(for query: String) {
+        searchTask?.cancel()
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedQuery.count >= 3 else {
+            results = []
+            isSearching = false
+            return
         }
 
-        let locality = trimmed(localityText)
-        let address = trimmed(addressText)
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await self?.search()
+        }
+    }
+
+    func search() async {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedQuery.count >= 2 else {
+            results = []
+            return
+        }
+
+        isSearching = true
+        errorMessage = nil
+        defer {
+            isSearching = false
+        }
+
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = trimmedQuery
+        request.region = MKCoordinateRegion(
+            center: selectedCoordinate,
+            latitudinalMeters: 80_000,
+            longitudinalMeters: 80_000
+        )
+
+        do {
+            let response = try await MKLocalSearch(request: request).start()
+            results = response.mapItems.map { item in
+                let location = Self.location(from: item)
+                return LocationSearchResult(
+                    title: item.name ?? location.locality ?? "Selected Location",
+                    subtitle: location.formattedAddress,
+                    coordinate: item.placemark.coordinate,
+                    location: location
+                )
+            }
+        } catch {
+            results = []
+            errorMessage = "Place search is unavailable right now. You can still tap the map to pick a pin."
+        }
+    }
+
+    func selectSearchResult(_ result: LocationSearchResult) {
+        selectedCoordinate = result.coordinate
+        selectedLocation = result.location
+        errorMessage = nil
+    }
+
+    func reverseGeocodeSelectedCoordinate() async {
+        reverseGeocodeTask?.cancel()
+        let coordinate = selectedCoordinate
+
+        reverseGeocodeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await self?.reverseGeocode(coordinate)
+        }
+    }
+
+    private func reverseGeocode(_ coordinate: CLLocationCoordinate2D) async {
+        do {
+            let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            let placemark = try await geocoder.reverseGeocodeLocation(location).first
+            selectedLocation = Self.location(from: placemark, coordinate: coordinate)
+            errorMessage = nil
+        } catch {
+            selectedLocation = CapturedLocation(
+                coordinate: coordinate,
+                horizontalAccuracy: 0,
+                locality: "Selected Location",
+                formattedAddress: nil
+            )
+            errorMessage = "Address could not be fetched, but the selected latitude and longitude will still be stamped."
+        }
+    }
+
+    private static func location(from mapItem: MKMapItem) -> CapturedLocation {
+        location(from: mapItem.placemark, coordinate: mapItem.placemark.coordinate, fallbackName: mapItem.name)
+    }
+
+    private static func location(
+        from placemark: CLPlacemark?,
+        coordinate: CLLocationCoordinate2D,
+        fallbackName: String? = nil
+    ) -> CapturedLocation {
+        let locality = firstNonEmpty(
+            fallbackName,
+            placemark?.name,
+            placemark?.locality,
+            placemark?.subLocality
+        )
+        let address = [
+            placemark?.name,
+            placemark?.subLocality,
+            placemark?.locality,
+            placemark?.administrativeArea,
+            placemark?.postalCode,
+            placemark?.country
+        ]
+            .compactMap { trimmed($0) }
+            .removingDuplicates()
+            .joined(separator: ", ")
+
         return CapturedLocation(
-            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            coordinate: coordinate,
             horizontalAccuracy: 0,
             locality: locality,
-            formattedAddress: address ?? locality
+            formattedAddress: address.isEmpty ? locality : address
         )
     }
 
-    private func trimmed(_ value: String) -> String? {
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedValue.isEmpty ? nil : trimmedValue
+    private static func firstNonEmpty(_ values: String?...) -> String? {
+        values.lazy.compactMap { trimmed($0) }.first
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue?.isEmpty == false ? trimmedValue : nil
+    }
+}
+
+private struct MapCoordinatePicker: UIViewRepresentable {
+    @Binding var selectedCoordinate: CLLocationCoordinate2D
+    let selectedTitle: String
+
+    func makeUIView(context: Context) -> MKMapView {
+        let mapView = MKMapView()
+        mapView.delegate = context.coordinator
+        mapView.pointOfInterestFilter = .includingAll
+        mapView.showsCompass = true
+        mapView.showsScale = true
+
+        let region = MKCoordinateRegion(
+            center: selectedCoordinate,
+            latitudinalMeters: 4_000,
+            longitudinalMeters: 4_000
+        )
+        mapView.setRegion(region, animated: false)
+
+        let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        mapView.addGestureRecognizer(tapRecognizer)
+        context.coordinator.updateAnnotation(on: mapView, coordinate: selectedCoordinate, title: selectedTitle)
+        return mapView
+    }
+
+    func updateUIView(_ mapView: MKMapView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.updateAnnotation(on: mapView, coordinate: selectedCoordinate, title: selectedTitle)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: MapCoordinatePicker
+        private var annotation: MKPointAnnotation?
+
+        init(parent: MapCoordinatePicker) {
+            self.parent = parent
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let mapView = recognizer.view as? MKMapView else {
+                return
+            }
+            let point = recognizer.location(in: mapView)
+            parent.selectedCoordinate = mapView.convert(point, toCoordinateFrom: mapView)
+        }
+
+        func updateAnnotation(on mapView: MKMapView, coordinate: CLLocationCoordinate2D, title: String) {
+            let pin = annotation ?? MKPointAnnotation()
+            pin.coordinate = coordinate
+            pin.title = title
+
+            if annotation == nil {
+                annotation = pin
+                mapView.addAnnotation(pin)
+            }
+
+            let visibleMapRect = mapView.visibleMapRect
+            let selectedPoint = MKMapPoint(coordinate)
+            if !visibleMapRect.contains(selectedPoint) {
+                mapView.setCenter(coordinate, animated: true)
+            }
+        }
+    }
+}
+
+private extension Array where Element: Hashable {
+    func removingDuplicates() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
     }
 }
