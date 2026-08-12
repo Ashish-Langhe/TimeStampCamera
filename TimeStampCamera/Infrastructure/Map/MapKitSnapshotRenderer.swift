@@ -2,8 +2,14 @@ import CoreLocation
 import MapKit
 import UIKit
 
-struct MapKitSnapshotRenderer: MapSnapshotRendering {
+final class MapKitSnapshotRenderer: MapSnapshotRendering {
+    private var cachedSnapshot: CachedMapSnapshot?
+
     func renderSnapshot(centeredAt coordinate: CLLocationCoordinate2D, size: CGSize) async throws -> UIImage {
+        if let cachedSnapshot, cachedSnapshot.matches(coordinate: coordinate, size: size) {
+            return cachedSnapshot.image
+        }
+
         let options = MKMapSnapshotter.Options()
         options.region = MKCoordinateRegion(
             center: coordinate,
@@ -15,7 +21,9 @@ struct MapKitSnapshotRenderer: MapSnapshotRendering {
         options.mapType = .standard
 
         let snapshot = try await MKMapSnapshotter(options: options).start()
-        return drawPin(on: snapshot, coordinate: coordinate, size: size)
+        let image = drawPin(on: snapshot, coordinate: coordinate, size: size)
+        cachedSnapshot = CachedMapSnapshot(coordinate: coordinate, size: size, image: image)
+        return image
     }
 
     private func drawPin(on snapshot: MKMapSnapshotter.Snapshot, coordinate: CLLocationCoordinate2D, size: CGSize) -> UIImage {
@@ -50,5 +58,20 @@ struct MapKitSnapshotRenderer: MapSnapshotRendering {
             UIColor.white.setFill()
             context.cgContext.fillEllipse(in: CGRect(x: point.x - 3, y: point.y - 20, width: 6, height: 6))
         }
+    }
+}
+
+private struct CachedMapSnapshot {
+    let coordinate: CLLocationCoordinate2D
+    let size: CGSize
+    let image: UIImage
+
+    func matches(coordinate: CLLocationCoordinate2D, size: CGSize) -> Bool {
+        self.size == size && distance(from: self.coordinate, to: coordinate) < 30
+    }
+
+    private func distance(from lhs: CLLocationCoordinate2D, to rhs: CLLocationCoordinate2D) -> CLLocationDistance {
+        CLLocation(latitude: lhs.latitude, longitude: lhs.longitude)
+            .distance(from: CLLocation(latitude: rhs.latitude, longitude: rhs.longitude))
     }
 }

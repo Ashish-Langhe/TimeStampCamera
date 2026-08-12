@@ -190,6 +190,28 @@ struct TimeStampCameraTests {
         #expect(photoLibrarySaver.saveCount == 0)
     }
 
+    @MainActor
+    @Test func renderStampedPhotoDoesNotPersistBeforePreview() async throws {
+        let location = CapturedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 19.076, longitude: 72.8777),
+            horizontalAccuracy: 8,
+            locality: "Mumbai",
+            formattedAddress: "Mumbai, Maharashtra, India"
+        )
+        let store = SpyPhotoRecordStore()
+        let useCase = CaptureStampedPhotoUseCase(
+            locationProvider: StubLocationProvider(location: location),
+            mapRenderer: SpyMapSnapshotRenderer(mapImage: TestImageFactory.image(color: .systemBlue)),
+            imageStamper: SpyImageStamper(stampedImage: TestImageFactory.image(color: .systemGreen)),
+            photoStore: store,
+            photoLibrarySaver: SpyPhotoLibrarySaver()
+        )
+
+        _ = try await useCase.renderStampedPhoto(sourceImage: TestImageFactory.image(color: .systemOrange))
+
+        #expect(store.savedMetadata == nil)
+    }
+
 }
 
 @MainActor

@@ -21,7 +21,7 @@ final class CameraViewModel: ObservableObject {
     enum State: Equatable {
         case idle
         case stamping
-        case savingToPhotos(PhotoRecord)
+        case savingToPhotos
         case completed(PhotoRecord)
         case failed(String)
     }
@@ -89,18 +89,21 @@ final class CameraViewModel: ObservableObject {
 
         Task {
             do {
-                let preparedPhoto = try await captureUseCase.prepareStampedPhoto(
+                let renderedPhoto = try await captureUseCase.renderStampedPhoto(
                     sourceImage: image,
                     capturedAtOverride: timestampOverride,
                     locationOverride: locationOverride,
                     fontConfiguration: fontConfiguration,
                     mapConfiguration: mapConfiguration
                 )
-                stampedImage = preparedPhoto.stampedImage
-                state = .savingToPhotos(preparedPhoto.record)
+                stampedImage = renderedPhoto.stampedImage
+                state = .savingToPhotos
 
-                try await captureUseCase.saveToPhotoLibrary(preparedPhoto.stampedImage)
-                state = .completed(preparedPhoto.record)
+                async let savedRecord = captureUseCase.saveStampedPhotoRecord(renderedPhoto.stampedImage, metadata: renderedPhoto.metadata)
+                async let photoLibrarySave: Void = captureUseCase.saveToPhotoLibrary(renderedPhoto.stampedImage)
+                let record = try await savedRecord
+                try await photoLibrarySave
+                state = .completed(record)
             } catch {
                 state = .failed(error.localizedDescription)
             }

@@ -28,25 +28,37 @@ final class CoreLocationProvider: NSObject, LocationProviding {
             throw LocationProviderError.permissionDenied
         }
 
-        if let cachedLocation, let cachedLocationDate, Date().timeIntervalSince(cachedLocationDate) < 90 {
+        if let cachedLocation, let cachedLocationDate, Date().timeIntervalSince(cachedLocationDate) < 300 {
             return cachedLocation
         }
 
+        if let recentLocation = locationManager.location,
+           Date().timeIntervalSince(recentLocation.timestamp) < 120 {
+            let capturedLocation = try await capturedLocation(from: recentLocation)
+            cachedLocation = capturedLocation
+            cachedLocationDate = Date()
+            return capturedLocation
+        }
+
         let location = try await requestOneShotLocation()
+        let capturedLocation = try await capturedLocation(from: location)
+        cachedLocation = capturedLocation
+        cachedLocationDate = Date()
+        return capturedLocation
+    }
+
+    private func capturedLocation(from location: CLLocation) async throws -> CapturedLocation {
         let placemark = try? await geocoder.reverseGeocodeLocation(location).first
         let address = [placemark?.name, placemark?.locality, placemark?.administrativeArea, placemark?.country]
             .compactMap { $0 }
             .joined(separator: ", ")
 
-        let capturedLocation = CapturedLocation(
+        return CapturedLocation(
             coordinate: location.coordinate,
             horizontalAccuracy: location.horizontalAccuracy,
             locality: placemark?.locality,
             formattedAddress: address.isEmpty ? nil : address
         )
-        cachedLocation = capturedLocation
-        cachedLocationDate = Date()
-        return capturedLocation
     }
 
     private func resolvedAuthorizationStatus() async -> CLAuthorizationStatus {

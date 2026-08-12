@@ -52,6 +52,25 @@ struct CaptureStampedPhotoUseCase {
         fontConfiguration: StampFontConfiguration = .default,
         mapConfiguration: StampMapConfiguration = .default
     ) async throws -> PreparedStampedPhoto {
+        let renderedPhoto = try await renderStampedPhoto(
+            sourceImage: sourceImage,
+            capturedAtOverride: capturedAtOverride,
+            locationOverride: locationOverride,
+            fontConfiguration: fontConfiguration,
+            mapConfiguration: mapConfiguration
+        )
+        let record = try saveStampedPhotoRecord(renderedPhoto.stampedImage, metadata: renderedPhoto.metadata)
+
+        return PreparedStampedPhoto(record: record, stampedImage: renderedPhoto.stampedImage)
+    }
+
+    func renderStampedPhoto(
+        sourceImage: UIImage,
+        capturedAtOverride: Date? = nil,
+        locationOverride: CapturedLocation? = nil,
+        fontConfiguration: StampFontConfiguration = .default,
+        mapConfiguration: StampMapConfiguration = .default
+    ) async throws -> RenderedStampedPhoto {
         let location: CapturedLocation
         if let locationOverride {
             location = locationOverride
@@ -72,9 +91,12 @@ struct CaptureStampedPhotoUseCase {
         )
         let preparedImage = sourceImage.resizedForStamping(maxPixelDimension: 2_400)
         let stampedImage = imageStamper.stamp(image: preparedImage, metadata: metadata)
-        let record = try photoStore.saveStampedPhoto(stampedImage, metadata: metadata)
 
-        return PreparedStampedPhoto(record: record, stampedImage: stampedImage)
+        return RenderedStampedPhoto(metadata: metadata, stampedImage: stampedImage)
+    }
+
+    func saveStampedPhotoRecord(_ stampedImage: UIImage, metadata: StampMetadata) throws -> PhotoRecord {
+        try photoStore.saveStampedPhoto(stampedImage, metadata: metadata)
     }
 
     func saveToPhotoLibrary(_ stampedImage: UIImage) async throws {
@@ -112,5 +134,10 @@ struct CaptureStampedPhotoResult: Equatable {
 
 struct PreparedStampedPhoto: Equatable {
     let record: PhotoRecord
+    let stampedImage: UIImage
+}
+
+struct RenderedStampedPhoto: Equatable {
+    let metadata: StampMetadata
     let stampedImage: UIImage
 }
